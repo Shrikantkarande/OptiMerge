@@ -7,6 +7,7 @@ import {
   uploadWeldments,
   uploadBOMs,
   uploadPipes,
+  uploadBends,
   healthCheck
 } from '../services/api';
 import DrawingExtractorModal from '../components/DrawingExtractorModal';
@@ -57,20 +58,26 @@ const readHeadersFromFile = async (file) => {
 
 const detectUploadTarget = async (file) => {
   const headers = await readHeadersFromFile(file);
-
-  const isPipe =
-    containsAll(headers, ['x axis', 'y axis', 'z axis', 'effective length']) &&
-    (containsAny(headers, ['if bends', 'bends']) || containsAny(headers, ['if straight', 'straight length']));
-
+  const isBend = containsAll(headers, ['name','no of bends','development length']) && containsAny(headers, ['xa','xb','xc']);
+  const isPipe = containsAll(headers, ['x axis', 'y axis', 'z axis', 'effective length']) && (containsAny(headers, ['if bends', 'bends']) || containsAny(headers, ['if straight', 'straight length']));
   const isBOM =
     containsAny(headers, ['component']) &&
     containsAny(headers, ['lev', 'level']) &&
     containsAny(headers, ['quantity', 'qty']);
 
-  const isWeldment =
-    containsAny(headers, ['assy pn', 'assy']) &&
-    (containsAny(headers, ['total height']) || containsAny(headers, ['outer dia', 'outer diameter']));
+  const isWeldment = containsAny(headers, ['assy pn', 'assy']) && (containsAny(headers, ['total height']) || containsAny(headers, ['outer dia', 'outer diameter']));
 
+
+  if (isBend) {
+  return {
+    type: 'bend',
+    label: 'Bend / Snap Data',
+    uploadFn: uploadBends,
+    analysisState: {
+      type: 'bend',
+      fileName: file.name,
+      autoRun: true,
+      autoAnalysis: 'bend_pairwise'}};}
   if (isPipe) {
     return {
       type: 'pipe',

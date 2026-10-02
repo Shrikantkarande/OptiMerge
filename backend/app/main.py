@@ -37,7 +37,7 @@ from .pipe_utils import (
     generate_pipe_excel_report,
     generate_pipe_replacement_suggestions
 )
-
+from .bend_analysis import analyze_bend_data
 app = FastAPI(title="BOM Optimization Tool", version="1.0.0")
 
 # ==============================
@@ -256,7 +256,7 @@ weldment_data = {}
 bom_data = {}
 pipe_data = {}
 analysis_results = {}
-
+bend_data = {}
 
 def generate_file_id():
     return str(uuid.uuid4())
@@ -282,6 +282,7 @@ def _get_uploaded_record(file_kind: str, file_id: str):
         "weldment": weldment_data,
         "bom": bom_data,
         "pipe": pipe_data,
+        "bend": bend_data,
     }
     store = store_map.get(file_kind)
     if not store or file_id not in store:
@@ -444,6 +445,90 @@ async def get_weldment_files():
         for fid, data in weldment_data.items()
     ]
 
+@app.post("/upload/bends/")
+async def upload_bends(file: UploadFile = File(...)):
+    """Upload bend/snap data file"""
+    try:
+        import io
+
+        print(f"Processing bend file: {file.filename}")
+
+        if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
+            raise HTTPException(
+                status_code=400,
+                detail="Only Excel and CSV files are supported"
+            )
+
+        content = await file.read()
+
+        file_id = generate_file_id()
+
+        safe_filename = _sanitize_upload_filename(file.filename)
+        file_path = os.path.join(
+            "uploads",
+            f"{file_id}_{safe_filename}"
+        )
+
+        with open(file_path, "wb") as buffer:
+            buffer.write(content)
+
+        if file.filename.endswith(".csv"):
+            df = pd.read_csv(io.BytesIO(content))
+        else:
+            df = pd.read_excel(io.BytesIO(content))
+
+        bend_data[file_id] = {
+            "filename": file.filename,
+            "data": df.to_dict("records"),
+            "file_path": file_path,
+            "columns": df.columns.tolist(),
+            "record_count": len(df),
+            "dataframe": df
+        }
+
+        return {
+            "message": "Bend file uploaded successfully",
+            "file_id": file_id,
+            "filename": file.filename,
+            "record_count": len(df),
+            "columns": df.columns.tolist()
+        }
+
+    except Exception as e:
+        print(f"Error processing bend file: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error processing file: {str(e)}"
+        )
+
+@app.get("/files/bends/")
+async def get_bend_files():
+    """Get list of uploaded bend files"""
+    return [
+        {
+            "file_id": fid,
+            "filename": data["filename"],
+            "record_count": data["record_count"],
+            "columns": data["columns"],
+            "download_url": f"/uploaded-files/bend/{fid}"
+        }
+        for fid, data in bend_data.items()
+    ]
+
+@app.get("/bend-data/{file_id}")
+async def get_bend_data(file_id: str):
+    """Get uploaded bend/snap data"""
+    if file_id not in bend_data:
+        raise HTTPException(
+            status_code=404,
+            detail="Bend file not found"
+        )
+
+    return {
+        "data": bend_data[file_id]["data"],
+        "columns": bend_data[file_id]["columns"]
+    }
+
 
 @app.get("/files/boms/")
 async def get_bom_files():
@@ -475,7 +560,7 @@ async def get_weldment_data(file_id: str):
 @app.get("/uploaded-files/{file_kind}/{file_id}")
 async def get_uploaded_file(file_kind: str, file_id: str):
     """Return the exact uploaded file for preview or download."""
-    if file_kind not in {"weldment", "bom", "pipe"}:
+    if file_kind not in {"weldment", "bom", "pipe" , "bend"}:
         raise HTTPException(status_code=400, detail="Unsupported file type")
 
     record = _resolve_uploaded_file_path(file_kind, file_id)
@@ -696,6 +781,111 @@ async def analyze_bom_similarity(request: dict):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"BOM analysis failed: {str(e)}")
 
+
+@app.post("/analyze/bend-pairwise/")
+async def analyze_bend_pairwise(request: dict):
+    """
+    Perform exact bend/snap matching.
+
+    Only parts with:
+    - the same number of bends
+    - identical development length
+    - identical required XYZ coordinates
+
+    are returned as 100% matches.
+    """
+    try:
+        bend_file_id = request.get(
+            "bend_file_id"
+        )
+
+        if bend_file_id not in bend_data:
+            raise HTTPException(
+                status_code=404,
+                detail="Bend file not found"
+            )
+
+        df = bend_data[bend_file_id]["dataframe"]
+
+        print(
+            "=== Starting Bend/Snap Analysis ==="
+        )
+        print(
+            f"Bend data shape: {df.shape}"
+        )
+
+        bend_result = analyze_bend_data(df)
+
+        analysis_id = generate_file_id()
+
+        source_file = _build_source_file_metadata(
+            "bend",
+            bend_file_id,
+            bend_data[bend_file_id]["filename"]
+        )
+
+        analysis_store = {
+            "type": "bend_pairwise",
+            "source_file": source_file,
+            "bend_pairwise": bend_result,
+
+            "clustering": {
+                "clusters": [],
+                "metrics": {
+                    "n_clusters": 0,
+                    "n_samples": len(df),
+                    "silhouette_score": 0
+                },
+                "visualization_data": [],
+                "numeric_columns": []
+            },
+
+            "bom_analysis": {
+                "similar_pairs": [],
+                "replacement_suggestions": []
+            }
+        }
+
+        analysis_results[analysis_id] = (
+            analysis_store
+        )
+
+        save_analysis_to_mongodb(
+            analysis_id,
+            "Bend Pairwise Analysis",
+            analysis_store
+        )
+
+        return {
+            "analysis_id": analysis_id,
+            "bend_pairwise_result": bend_result,
+            "clustering_result": (
+                analysis_store["clustering"]
+            ),
+            "bom_analysis_result": (
+                analysis_store["bom_analysis"]
+            ),
+            "source_file": source_file
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        print(
+            "Bend pairwise analysis error:",
+            str(e)
+        )
+
+        import traceback
+        traceback.print_exc()
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Bend pairwise analysis failed: {str(e)}"
+            )
+        )
 
 # Add this new endpoint before the root endpoint (@app.get("/"))
 @app.post("/calculate-bom-savings/")

@@ -24,7 +24,8 @@ import SignupPage from './pages/SignupPage';
 import BOMSavingsCalculator from './pages/BOMSavingsCalculator';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import DimensionExtractionPage from './pages/DimensionExtractionPage';
-
+import BendResultsPage from './pages/BendResultsPage';
+import BendReplacementSuggestionPage from './pages/BendReplacementSuggestion';
 import './App.css';
 
 const { Header, Content, Sider } = Layout;
@@ -118,6 +119,8 @@ function App() {
                     <Route path="/results/bom/replacements" element={<PrivateRoute><BOMReplacementSuggestion /></PrivateRoute>} />
                     <Route path="/calculate-bom-savings/:analysisId" element={<PrivateRoute><BOMSavingsCalculator /></PrivateRoute>} />
                     <Route path="/extract-dimensions" element={<PrivateRoute><DimensionExtractionPage /></PrivateRoute>} />
+                    <Route path="/results/bends/:analysisId" element={<BendResultsPage />}/>
+                    <Route path="/results/bends/replacements/:analysisId"element={<BendReplacementSuggestionPage />}/>
                     {/* Fallback route */}
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>

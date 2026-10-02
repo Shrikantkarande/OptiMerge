@@ -264,4 +264,55 @@ export const exportPipeReport = async (analysisId, mode = 'xyz_only', format = '
   }
 };
 
+
+
+
+export const uploadBends = async (formData) => {
+  try {
+    console.log('Uploading Bend/Snap data...');
+
+    const response = await api.post(
+      '/upload/bends/',
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 120000,
+      }
+    );
+
+    return response;
+  } catch (error) {
+    console.error('Upload bend data error:', error);
+    throw error;
+  }
+};
+
+export const getBendFiles = async () => {
+  try {
+    const response = await api.get('/files/bends/');
+    return response;
+  } catch (error) {
+    console.error('Get bend files error:', error);
+    throw error;
+  }
+};
+
+export const analyzeBendPairwise = async (data) => {
+  try {
+    console.log('Starting bend pairwise analysis...');
+
+    const response = await api.post(
+      '/analyze/bend-pairwise/',
+      data
+    );
+
+    return response;
+  } catch (error) {
+    console.error('Bend pairwise analysis error:', error);
+    throw error;
+  }
+};
+
 export default api;

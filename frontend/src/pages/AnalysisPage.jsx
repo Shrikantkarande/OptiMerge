@@ -6,7 +6,8 @@ import {
 import { PlayCircleOutlined } from '@ant-design/icons';
 import {
   getWeldmentFiles, getBOMFiles, getPipeFiles,
-  analyzeDimensionalClustering, analyzeBOMSimilarity, analyzeWeldmentPairwise, analyzePipePairwise
+  analyzeDimensionalClustering, analyzeBOMSimilarity, analyzeWeldmentPairwise, analyzePipePairwise,
+  getBendFiles, analyzeBendPairwise
 } from '../services/api';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -17,16 +18,18 @@ const AnalysisPage = () => {
   const [bomForm] = Form.useForm(); // bom similarity form
   const [weldmentForm] = Form.useForm(); // weldment pairwise form
   const [pipeForm] = Form.useForm(); // pipe pairwise form
+  const [bendForm] = Form.useForm(); // bend pairwise form
 
   const [weldmentFiles, setWeldmentFiles] = useState([]);
   const [bomFiles, setBomFiles] = useState([]);
   const [pipeFiles, setPipeFiles] = useState([]);
+  const [bendFiles, setBendFiles] = useState([]);
 
   const [clusteringLoading, setClusteringLoading] = useState(false);
   const [bomLoading, setBomLoading] = useState(false);
   const [weldmentLoading, setWeldmentLoading] = useState(false);
   const [pipeLoading, setPipeLoading] = useState(false);
-
+  const [bendLoading, setBendLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const autoRunRef = useRef(false);
@@ -77,6 +80,16 @@ const AnalysisPage = () => {
           weldmentForm.setFieldsValue(values);
           await onWeldmentComparison(values);
         }
+
+        if (smartUpload.type === 'bend') {
+          const values = {
+            bend_file_id: smartUpload.fileId
+          };
+
+          bendForm.setFieldsValue(values);
+          await onBendComparison(values);
+          return;
+        }
       } catch (error) {
         console.error('Smart auto-run failed:', error);
         message.error('Automatic analysis could not be completed. You can still run it manually.');
@@ -91,7 +104,8 @@ const AnalysisPage = () => {
       const [weldmentResponse, bomResponse, pipeResponse] = await Promise.all([
         getWeldmentFiles(),
         getBOMFiles(),
-        getPipeFiles()
+        getPipeFiles(),
+        getBendFiles()
       ]);
       setWeldmentFiles(weldmentResponse.data || []);
       setBomFiles(bomResponse.data || []);
@@ -236,6 +250,65 @@ const AnalysisPage = () => {
     }
   };
 
+  const onBendComparison = async (values) => {
+  try {
+    setBendLoading(true);
+
+    console.log(
+      'Starting bend pairwise analysis:',
+      values
+    );
+
+    const payload = {
+      bend_file_id: values.bend_file_id
+    };
+
+    const response = await analyzeBendPairwise(
+      payload
+    );
+
+    console.log(
+      'Bend analysis response:',
+      response.data
+    );
+
+    message.success(
+      'Bend/Snap analysis completed successfully'
+    );
+
+    navigate(
+      `/results/bends/${response.data.analysis_id}`,
+      {
+        state: {
+          analysisResults: {
+            bend_pairwise:
+              response.data.bend_pairwise_result
+          },
+          source_file:
+            response.data.source_file
+        }
+      }
+    );
+
+  } catch (error) {
+    console.error(
+      'Bend analysis error:',
+      error
+    );
+
+    const errorMessage =
+      error.response?.data?.detail ||
+      error.message ||
+      'Bend analysis failed';
+
+    message.error(
+      `Bend analysis failed: ${errorMessage}`
+    );
+
+  } finally {
+    setBendLoading(false);
+  }
+};
   const hasWeldmentFiles = weldmentFiles.length > 0;
   const hasBomFiles = bomFiles.length > 0;
   const hasPipeFiles = pipeFiles.length > 0;
