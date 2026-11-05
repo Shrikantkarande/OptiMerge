@@ -18,11 +18,13 @@ import {
 } from 'antd';
 import { DownloadOutlined, FileExcelOutlined, FileTextOutlined, SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import { saveAs } from 'file-saver';
+import UploadedFileViewer from '../components/UploadedFileViewer';
 import { getAnalysisResults, exportPipeReport } from '../services/api';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 
 const PipesResultsPage = () => {
   const [results, setResults] = useState(null);
+  const [sourceFile, setSourceFile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [exportLoading, setExportLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -33,6 +35,7 @@ const PipesResultsPage = () => {
   useEffect(() => {
     if (location.state?.analysisResults?.pipe_pairwise) {
       setResults(location.state.analysisResults.pipe_pairwise);
+      setSourceFile(location.state.source_file || location.state.analysisResults?.source_file || null);
       setLoading(false);
     } else if (analysisId) {
       loadAnalysisResults();
@@ -49,6 +52,7 @@ const PipesResultsPage = () => {
       const raw = data.raw || data;
       const pipeRes = raw?.pipe_pairwise || raw?.pipe_pairwise_result || data.pipe_pairwise_result;
       setResults(pipeRes || null);
+      setSourceFile(data.source_file || raw?.source_file || null);
     } catch (err) {
       console.error('Error loading pipe results:', err);
       message.error('Failed to load pipe analysis results');
@@ -103,6 +107,15 @@ const PipesResultsPage = () => {
     saveAs(blob, `Comparison_Report_${isBends ? 'XYZ_Bends' : 'XYZOnly'}.csv`);
   };
 
+  const handleViewReplacementSuggestions = () => {
+  navigate(`/results/pipes/replacements/${analysisId}`, {
+    state: {
+      pipeAnalysis: results,
+      source_file: sourceFile
+    }
+  });
+  };
+
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: 50 }}>
@@ -135,6 +148,9 @@ const PipesResultsPage = () => {
   const threshold = results?.parameters?.threshold ?? 0;
   const totalPipes = results?.parameters?.total_pipes || 0;
   const tableData = results?.pairwise_table || [];
+  const priceAvailable = results?.price_available === true;
+  const replacementData = results?.replacement_suggestions || null;
+  const replacementRows = replacementData?.replacement_rows || [];
 
   const filteredData = tableData.filter(item => {
     if (!searchText) return true;
@@ -238,6 +254,18 @@ const PipesResultsPage = () => {
         </Space>
       </div>
 
+      {sourceFile && (
+        <Card style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontWeight: 600 }}>Source File</div>
+              <div style={{ color: '#666' }}>{sourceFile.filename}</div>
+            </div>
+            <UploadedFileViewer sourceFile={sourceFile} buttonText="View Uploaded File" />
+          </div>
+        </Card>
+      )}
+
       {/* Stats row */}
       <Row gutter={16} style={{ marginBottom: 20 }}>
         <Col span={6}>
@@ -279,6 +307,47 @@ const PipesResultsPage = () => {
           </Card>
         </Col>
       </Row>
+          {priceAvailable ? (
+          <Card
+            style={{
+              marginBottom: 20,
+              background: '#f6ffed',
+              borderColor: '#b7eb8f'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ marginBottom: 8 }}>Cost-Effective Replacement Suggestions</h3>
+                <p style={{ marginBottom: 0 }}>
+                  Exact-match pipes with lower-cost alternatives are available.
+                  View the replacement opportunities and estimated savings.
+                </p>
+              </div>
+              <Button
+                type="primary"
+                onClick={handleViewReplacementSuggestions}
+                disabled={replacementRows.length === 0}
+              >
+                View Replacement Suggestions
+              </Button>
+            </div>
+          </Card>
+        ) : (
+          <Card
+            style={{
+              marginBottom: 20,
+              background: '#fffbe6',
+              borderColor: '#ffe58f'
+            }}
+          >
+            <Alert
+              message="Price Data Not Available"
+              description="The uploaded Pipe file does not contain a Price column. Cost-effective replacement suggestions cannot be generated without price information."
+              type="warning"
+              showIcon
+            />
+          </Card>
+        )}
 
       {/* Main Table Card */}
       <Card

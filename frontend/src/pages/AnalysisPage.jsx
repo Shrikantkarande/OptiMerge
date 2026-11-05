@@ -1,14 +1,15 @@
 // src/pages/AnalysisPage.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Card, Form, Input, Select, Button, Row, Col, message, Slider, Table, Space
+  Card, Form, Input, Select, Button, Row, Col, message, Slider
 } from 'antd';
-import { PlayCircleOutlined, RocketOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined } from '@ant-design/icons';
 import {
   getWeldmentFiles, getBOMFiles, getPipeFiles,
-  analyzeDimensionalClustering, analyzeBOMSimilarity, analyzeWeldmentPairwise, analyzePipePairwise
+  analyzeDimensionalClustering, analyzeBOMSimilarity, analyzeWeldmentPairwise, analyzePipePairwise,
+  getBendFiles, analyzeBendPairwise
 } from '../services/api';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const { Option } = Select;
 
@@ -17,29 +18,94 @@ const AnalysisPage = () => {
   const [bomForm] = Form.useForm(); // bom similarity form
   const [weldmentForm] = Form.useForm(); // weldment pairwise form
   const [pipeForm] = Form.useForm(); // pipe pairwise form
+  const [bendForm] = Form.useForm(); // bend pairwise form
 
   const [weldmentFiles, setWeldmentFiles] = useState([]);
   const [bomFiles, setBomFiles] = useState([]);
   const [pipeFiles, setPipeFiles] = useState([]);
+  const [bendFiles, setBendFiles] = useState([]);
 
   const [clusteringLoading, setClusteringLoading] = useState(false);
   const [bomLoading, setBomLoading] = useState(false);
   const [weldmentLoading, setWeldmentLoading] = useState(false);
   const [pipeLoading, setPipeLoading] = useState(false);
-
-  const [analysisResults, setAnalysisResults] = useState(null);
+  const [bendLoading, setBendLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const autoRunRef = useRef(false);
+  const smartUpload = location.state?.smartUpload;
 
   useEffect(() => {
     loadFiles();
   }, []);
+
+  useEffect(() => {
+    if (!smartUpload || autoRunRef.current) {
+      return;
+    }
+
+    const runSmartAnalysis = async () => {
+      autoRunRef.current = true;
+
+      try {
+        if (smartUpload.type === 'pipe') {
+          const values = {
+            pipe_file_id: smartUpload.fileId,
+            mode: 'xyz_only',
+            threshold: 0
+          };
+          pipeForm.setFieldsValue(values);
+          await onPipeComparison(values);
+          return;
+        }
+
+        if (smartUpload.type === 'bom') {
+          const values = {
+            bom_file_id: smartUpload.fileId,
+            similarity_method: 'jaccard',
+            threshold: 0.8
+          };
+          bomForm.setFieldsValue(values);
+          await onBOMAnalysis(values);
+          return;
+        }
+
+        if (smartUpload.type === 'weldment') {
+          const values = {
+            weldment_file_id: smartUpload.fileId,
+            threshold: 0.3,
+            tolerance: 1e-6,
+            include_self: false
+          };
+          weldmentForm.setFieldsValue(values);
+          await onWeldmentComparison(values);
+        }
+
+        if (smartUpload.type === 'bend') {
+          const values = {
+            bend_file_id: smartUpload.fileId
+          };
+
+          bendForm.setFieldsValue(values);
+          await onBendComparison(values);
+          return;
+        }
+      } catch (error) {
+        console.error('Smart auto-run failed:', error);
+        message.error('Automatic analysis could not be completed. You can still run it manually.');
+      }
+    };
+
+    runSmartAnalysis();
+  }, [smartUpload]);
 
   const loadFiles = async () => {
     try {
       const [weldmentResponse, bomResponse, pipeResponse] = await Promise.all([
         getWeldmentFiles(),
         getBOMFiles(),
-        getPipeFiles()
+        getPipeFiles(),
+        getBendFiles()
       ]);
       setWeldmentFiles(weldmentResponse.data || []);
       setBomFiles(bomResponse.data || []);
@@ -59,7 +125,6 @@ const AnalysisPage = () => {
       const response = await analyzeDimensionalClustering(values);
       console.log('Dimensional clustering response:', response.data);
 
-      setAnalysisResults(response.data);
       message.success('Dimensional analysis completed successfully');
 
       // Navigate to clustering results page
@@ -68,7 +133,8 @@ const AnalysisPage = () => {
           analysisResults: {
             clustering: response.data.clustering_result,
             bom_analysis: response.data.bom_analysis_result
-          }
+          },
+          source_file: response.data.source_file
         }
       });
     } catch (error) {
@@ -89,7 +155,6 @@ const AnalysisPage = () => {
       const response = await analyzeBOMSimilarity(values);
       console.log('BOM analysis response:', response.data);
 
-      setAnalysisResults(response.data);
       message.success('BOM analysis completed successfully');
 
       // Navigate to BOM results page
@@ -98,7 +163,8 @@ const AnalysisPage = () => {
           analysisResults: {
             clustering: response.data.clustering_result,
             bom_analysis: response.data.bom_analysis_result
-          }
+          },
+          source_file: response.data.source_file
         }
       });
     } catch (error) {
@@ -127,7 +193,6 @@ const AnalysisPage = () => {
       const response = await analyzeWeldmentPairwise(payload);
       console.log('Weldment pairwise response:', response.data);
 
-      setAnalysisResults(response.data);
       message.success('Weldment pairwise comparison completed successfully');
 
       // Navigate to weldment results page
@@ -137,7 +202,8 @@ const AnalysisPage = () => {
             weldment_pairwise: response.data.weldment_pairwise_result,
             clustering: response.data.clustering_result,
             bom_analysis: response.data.bom_analysis_result
-          }
+          },
+          source_file: response.data.source_file
         }
       });
     } catch (error) {
@@ -164,7 +230,6 @@ const AnalysisPage = () => {
       const response = await analyzePipePairwise(payload);
       console.log('Pipe pairwise response:', response.data);
 
-      setAnalysisResults(response.data);
       message.success('Pipe pairwise comparison completed successfully');
 
       // Navigate to pipe results page
@@ -172,7 +237,8 @@ const AnalysisPage = () => {
         state: {
           analysisResults: {
             pipe_pairwise: response.data.pipe_pairwise_result
-          }
+          },
+          source_file: response.data.source_file
         }
       });
     } catch (error) {
@@ -184,7 +250,65 @@ const AnalysisPage = () => {
     }
   };
 
-  // helpers
+  const onBendComparison = async (values) => {
+  try {
+    setBendLoading(true);
+
+    console.log(
+      'Starting bend pairwise analysis:',
+      values
+    );
+
+    const payload = {
+      bend_file_id: values.bend_file_id
+    };
+
+    const response = await analyzeBendPairwise(
+      payload
+    );
+
+    console.log(
+      'Bend analysis response:',
+      response.data
+    );
+
+    message.success(
+      'Bend/Snap analysis completed successfully'
+    );
+
+    navigate(
+      `/results/bends/${response.data.analysis_id}`,
+      {
+        state: {
+          analysisResults: {
+            bend_pairwise:
+              response.data.bend_pairwise_result
+          },
+          source_file:
+            response.data.source_file
+        }
+      }
+    );
+
+  } catch (error) {
+    console.error(
+      'Bend analysis error:',
+      error
+    );
+
+    const errorMessage =
+      error.response?.data?.detail ||
+      error.message ||
+      'Bend analysis failed';
+
+    message.error(
+      `Bend analysis failed: ${errorMessage}`
+    );
+
+  } finally {
+    setBendLoading(false);
+  }
+};
   const hasWeldmentFiles = weldmentFiles.length > 0;
   const hasBomFiles = bomFiles.length > 0;
   const hasPipeFiles = pipeFiles.length > 0;
